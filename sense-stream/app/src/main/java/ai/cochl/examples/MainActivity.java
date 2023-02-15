@@ -190,8 +190,7 @@ public class MainActivity extends AppCompatActivity {
             for (int grantResult : grantResults) {
                 if (grantResult != PackageManager.PERMISSION_GRANTED) {
                     Toast.makeText(getApplicationContext(),
-                                   "You need to allow the permissions to use "
-                                           + "this app.",
+                                   "You need to allow the permissions to use this app.",
                                    Toast.LENGTH_LONG).show();
                     finish();
                 }

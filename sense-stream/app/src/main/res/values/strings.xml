@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Cochl.Sense Stream</string>
+    <string name="logo_description">Cochl.Sense stream mode example</string>
+    <string name="detected_sound_events">Detected Sound Events</string>
+    <string name="wait_prompt">Please wait ...</string>
+
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
+    <string name="clear">Clear</string>
+</resources>

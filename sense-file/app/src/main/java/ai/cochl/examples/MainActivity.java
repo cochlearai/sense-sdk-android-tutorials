@@ -33,7 +33,6 @@ import ai.cochl.sensesdk.Sense;
 
 public class MainActivity extends AppCompatActivity {
     private final String projectKey = "Your project key";
-
     private Sense sense = null;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -129,6 +128,7 @@ public class MainActivity extends AppCompatActivity {
                 senseParams.metrics.freeDiskSpace = 100;  // MB
                 senseParams.metrics.pushPeriod = 30;      // seconds
                 senseParams.deviceName = "Android device.";
+                senseParams.logLevel = 0;
 
                 sense.init(projectKey, senseParams);
             } catch (CochlException error) {

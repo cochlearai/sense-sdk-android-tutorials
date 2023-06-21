@@ -104,6 +104,7 @@ public class MainActivity extends AppCompatActivity {
                 senseParams.metrics.freeDiskSpace = 100;  // MB
                 senseParams.metrics.pushPeriod = 30;      // seconds
                 senseParams.deviceName = "Android device.";
+                senseParams.logLevel = 0;
 
                 sense.init(projectKey, senseParams);
                 sense.addInput(new AudioRecord(AUDIO_SOURCE,

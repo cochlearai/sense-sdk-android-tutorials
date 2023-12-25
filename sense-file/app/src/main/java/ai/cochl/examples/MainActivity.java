@@ -2,18 +2,25 @@ package ai.cochl.examples;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.method.ScrollingMovementMethod;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -33,20 +40,17 @@ import ai.cochl.sensesdk.Sense;
 
 public class MainActivity extends AppCompatActivity {
     private final String projectKey = "Your project key";
-    private Sense sense = null;
-
+    private final int SENSE_SDK_REQUEST_CODE = 0;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final String[] permissionList = {Manifest.permission.INTERNET};
+    private Sense sense = null;
+    private boolean settingsButtonClicked = false;
     private ProgressBar progressBar;
     private TextView event;
     private Context context;
-
     private Adapter adapter;
-    private boolean isFileSelected = false;
+    private boolean fileSelected = false;
     private Item selectedItem = null;
-
-    private final String[] permissionList = {
-            Manifest.permission.INTERNET
-    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,10 +63,7 @@ public class MainActivity extends AppCompatActivity {
         context = this;
 
         RecyclerView recyclerView = findViewById(R.id.files);
-        recyclerView.setLayoutManager(
-                new LinearLayoutManager(this,
-                                        RecyclerView.VERTICAL,
-                                        false));
+        recyclerView.setLayoutManager(new LinearLayoutManager(this, RecyclerView.VERTICAL, false));
         adapter = new Adapter();
         recyclerView.setAdapter(adapter);
 
@@ -73,36 +74,27 @@ public class MainActivity extends AppCompatActivity {
         btnClear.setOnClickListener(v -> event.setText(""));
 
         adapter.SetOnItemClickListener((viewHolder, view, position) -> {
-            if (!isFileSelected) {
-                isFileSelected = true;
+            if (!fileSelected) {
+                fileSelected = true;
                 btnPredict.setEnabled(true);
             }
             selectedItem = adapter.GetItem(position);
         });
         btnPredict.setOnClickListener(v -> {
-            if (!isFileSelected)
-                return;
+            if (!fileSelected) return;
 
             new Thread(() -> {
-                progressBar = new ProgressBar(handler,
-                                              findViewById(R.id.inc_progress_bar));
-                Thread thread = new Thread(progressBar);
-                thread.start();
-
                 try {
                     sense.addInput(selectedItem.GetFile());
-                    isFileSelected = false;
+                    fileSelected = false;
                     selectedItem = null;
                     runOnUiThread(() -> btnPredict.setEnabled(false));
                     sensePredict();
-                } catch (CochlException error) {
-                    runOnUiThread(() ->
-                            Toast.makeText(this,
-                                           error.getMessage(),
-                                           Toast.LENGTH_LONG).show());
-                    finish();
+                } catch (CochlException e) {
+                    runOnUiThread(() -> GetToast(this, e.getMessage()).show());
                 }
             }).start();
+
         });
 
         if (!checkPermissions()) {
@@ -127,62 +119,94 @@ public class MainActivity extends AppCompatActivity {
                 senseParams.metrics.retentionPeriod = 0;  // days
                 senseParams.metrics.freeDiskSpace = 100;  // MB
                 senseParams.metrics.pushPeriod = 30;      // seconds
+
                 senseParams.deviceName = "Android device.";
+
                 senseParams.logLevel = 0;
 
+                senseParams.hopSizeControl.enable = true;
+                senseParams.sensitivityControl.enable = true;
+                senseParams.resultAbbreviation.enable = true;
+                senseParams.labelHiding.enable = false;  // stream mode only
+
                 sense.init(projectKey, senseParams);
-            } catch (CochlException error) {
-                runOnUiThread(() ->
-                        Toast.makeText(this,
-                                       error.getMessage(),
-                                       Toast.LENGTH_LONG).show());
-                finish();
+            } catch (CochlException e) {
+                runOnUiThread(() -> {
+                    GetToast(this, e.getMessage()).show();
+                    finish();
+                });
             }
             runOnUiThread(() -> progressBar.setStop());
         }).start();
     }
 
     private void sensePredict() {
+        boolean resultAbbreviation = sense.getParameters().resultAbbreviation.enable;
+
+        progressBar = new ProgressBar(handler, findViewById(R.id.inc_progress_bar));
+        Thread thread = new Thread(progressBar);
+        thread.start();
+
         sense.predict(new Sense.OnPredictListener() {
             @Override
-            public void onReceivedResult(JSONObject result) {
+            public void onReceivedResult(JSONObject json) {
                 try {
-                    JSONArray jsonArr = result.getJSONArray("tags");
-                    for (int i = 0; i < jsonArr.length(); ++i) {
-                        JSONObject obj = jsonArr.getJSONObject(i);
-                        if (obj.getString("name").equals("Others"))
-                            continue;
-
-                        event.append(obj.getString("name") + " "
-                                + "("
-                                + obj.getDouble("probability")
-                                + ")\n");
-
-                        final int scrollAmount = event.getLayout().getLineTop(
-                                event.getLineCount()) - event.getHeight();
-                        event.scrollTo(0, Math.max(scrollAmount, 0));
+                    if (resultAbbreviation) {
+                        JSONArray abbreviations = json.getJSONArray("abbreviations");
+                        Append("<Result summary>");
+                        for (int i = 0; i < abbreviations.length(); ++i) {
+                            Append(abbreviations.getString(i));
+                        }
+                        /*
+                         Even if you use the result abbreviation, you can still get precise
+                         results like below if necessary:
+                         String result = json.getJSONObject("result").toString(2);
+                         Append(result);
+                        */
+                    } else {
+                        String result = json.getJSONObject("result").toString(2);
+                        Append(result);
                     }
                 } catch (JSONException e) {
                     e.printStackTrace();
-                } catch (CochlException error) {
-                    Toast.makeText(context,
-                                   error.getMessage(),
-                                   Toast.LENGTH_SHORT).show();
+                } finally {
+                    runOnUiThread(() -> progressBar.setStop());
                 }
-
-                // For file mode results, all results are stored in one json array and returned
-                // regardless of the audio file length.
-                runOnUiThread(() -> progressBar.setStop());
             }
 
             @Override
-            public void onError(CochlException error) {
-                sense.stopPredict();
-                Toast.makeText(context,
-                               error.getMessage(),
-                               Toast.LENGTH_SHORT).show();
+            public void onError(CochlException e) {
+                runOnUiThread(() -> {
+                    progressBar.setStop();
+                    GetToast(context, e.getMessage()).show();
+                    sense.stopPredict();
+                });
             }
         });
+    }
+
+    private void Append(String msg) {
+        event.append(msg + "\n");
+        final int scrollAmount =
+                event.getLayout().getLineTop(event.getLineCount()) - event.getHeight();
+        event.scrollTo(0, Math.max(scrollAmount, 0));
+    }
+
+    private Toast GetToast(Context context, String msg) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(Color.LTGRAY);
+        gd.setCornerRadius(20);
+
+        TextView tvToast = new TextView(context);
+        tvToast.setText(msg);
+        tvToast.setBackground(gd);
+        tvToast.setPadding(16, 8, 16, 8);
+
+        Toast toast = new Toast(context);
+        toast.setDuration(Toast.LENGTH_LONG);
+        toast.setView(tvToast);
+
+        return toast;
     }
 
     private boolean checkPermissions() {
@@ -198,29 +222,61 @@ public class MainActivity extends AppCompatActivity {
     private void requestPermissions() {
         for (String permission : permissionList) {
             if (checkCallingOrSelfPermission(permission) == PackageManager.PERMISSION_DENIED) {
-                requestPermissions(permissionList, 0);
+                requestPermissions(permissionList, SENSE_SDK_REQUEST_CODE);
             }
         }
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode,
-                                           @NonNull String[] permissions,
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode,
-                                         permissions,
-                                         grantResults);
-        if (requestCode == 0) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == SENSE_SDK_REQUEST_CODE) {
+            boolean allPermissionsGranted = true;
             for (int grantResult : grantResults) {
                 if (grantResult != PackageManager.PERMISSION_GRANTED) {
-                    Toast.makeText(getApplicationContext(),
-                                   "You need to allow the permissions to use this app.",
-                                   Toast.LENGTH_LONG).show();
+                    allPermissionsGranted = false;
+                    break;
+                }
+            }
+
+            if (allPermissionsGranted) {
+                senseInit();
+            } else {
+                boolean shouldShowRationale = false;
+                for (String permission : permissions) {
+                    if (ActivityCompat.shouldShowRequestPermissionRationale(this, permission)) {
+                        shouldShowRationale = true;
+                        break;
+                    }
+                }
+
+                if (shouldShowRationale) {
+                    GetToast(this, "You need to allow the permission to use this app.").show();
                     finish();
+                } else {
+                    showPermissionSettingsDialog();
                 }
             }
         }
-        senseInit();
+    }
+
+    private void showPermissionSettingsDialog() {
+        AlertDialog alertDialog = new AlertDialog.Builder(this).setMessage("Permission has been " +
+                "denied. Would you like to enable it in settings?").setPositiveButton("Go to " +
+                "Settings", (dialog, which) -> {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", getPackageName(), null));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+            settingsButtonClicked = true;
+        }).setNegativeButton("Cancel", (dialog, which) -> {
+            GetToast(this, "You need to allow the " +
+                    "permission to use this app.").show();
+            finish();
+        }).create();
+
+        alertDialog.show();
     }
 
     private void copyAssets() {
@@ -231,9 +287,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (IOException ignored) {
         }
         if (files == null) {
-            Toast.makeText(getApplicationContext(),
-                           "Failed to get asset file list.",
-                           Toast.LENGTH_LONG).show();
+            GetToast(this, "Failed to get asset file list.").show();
             finish();
         }
 
@@ -245,9 +299,8 @@ public class MainActivity extends AppCompatActivity {
                 File outFile = new File(this.getExternalFilesDir(null), filename);
                 out = Files.newOutputStream(outFile.toPath());
                 copyFile(in, out);
-            } catch(IOException ignored) {
-            }
-            finally {
+            } catch (IOException ignored) {
+            } finally {
                 if (in != null) {
                     try {
                         in.close();
@@ -274,17 +327,28 @@ public class MainActivity extends AppCompatActivity {
 
     private void addWavFiles() {
         File parent = this.getExternalFilesDir(null);
-        for (String filename : Objects.requireNonNull(parent.list())) {
+        for (String filename : Objects.requireNonNull(Objects.requireNonNull(parent).list())) {
             adapter.AddItem(new Item(filename, new File(parent, filename)));
         }
         this.runOnUiThread(adapter::notifyDataSetChanged);
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+
+        if (settingsButtonClicked) {
+            if (checkPermissions()) senseInit();
+            settingsButtonClicked = false;
+        }
+    }
+
+    @Override
     protected void onDestroy() {
-        super.onDestroy();
         if (sense != null) {
             sense.terminate();
+            sense = null;
         }
+        super.onDestroy();
     }
 }

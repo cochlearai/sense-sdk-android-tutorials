@@ -186,10 +186,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void Append(String msg) {
-        event.append(msg + "\n");
-        final int scrollAmount =
-                event.getLayout().getLineTop(event.getLineCount()) - event.getHeight();
-        event.scrollTo(0, Math.max(scrollAmount, 0));
+        String currentText = (event.getText().toString() + msg + "\n");
+
+        int maxTextViewStringLength = 8192;
+        if (currentText.length() > maxTextViewStringLength) {
+            int idx = currentText.indexOf('\n', currentText.length() - maxTextViewStringLength);
+            if (idx >= 0) {
+                currentText = currentText.substring(idx + 1);
+            }
+        }
+
+        event.setText(currentText);
+
+        event.post(() -> {
+            final int scrollAmount =
+                    event.getLayout().getLineTop(event.getLineCount()) - event.getHeight();
+            event.scrollTo(0, Math.max(scrollAmount, 0));
+        });
     }
 
     private Toast GetToast(Context context, String msg) {
@@ -262,19 +275,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showPermissionSettingsDialog() {
-        AlertDialog alertDialog = new AlertDialog.Builder(this).setMessage("Permission has been " +
-                "denied. Would you like to enable it in settings?").setPositiveButton("Go to " +
-                "Settings", (dialog, which) -> {
-            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.fromParts("package", getPackageName(), null));
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(intent);
-            settingsButtonClicked = true;
-        }).setNegativeButton("Cancel", (dialog, which) -> {
-            GetToast(this, "You need to allow the " +
-                    "permission to use this app.").show();
-            finish();
-        }).create();
+        AlertDialog alertDialog = new AlertDialog.Builder(this)
+                .setMessage("Permission has been denied. Would you like to enable it in settings?")
+                .setPositiveButton("Go to Settings", (dialog, which) -> {
+                    Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", getPackageName(), null));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                    settingsButtonClicked = true;
+                }).setNegativeButton("Cancel", (dialog, which) -> {
+                    GetToast(this, "You need to allow the permission to use this app.").show();
+                    finish();
+                }).create();
 
         alertDialog.show();
     }
@@ -338,8 +350,14 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
 
         if (settingsButtonClicked) {
-            if (checkPermissions()) senseInit();
             settingsButtonClicked = false;
+
+            if (checkPermissions()) {
+                senseInit();
+            } else {
+                GetToast(this, "You need to allow the permission to use this app.").show();
+                finish();
+            }
         }
     }
 

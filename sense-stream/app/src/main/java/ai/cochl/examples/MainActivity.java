@@ -86,7 +86,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void senseInit() {
-        /* to catch 'Only this time (Ask every time)' */
         int permission = ContextCompat.checkSelfPermission(this,
                 Manifest.permission.RECORD_AUDIO);
         if (permission == PackageManager.PERMISSION_DENIED) {

@@ -94,7 +94,6 @@ public class MainActivity extends AppCompatActivity {
                     runOnUiThread(() -> GetToast(this, e.getMessage()).show());
                 }
             }).start();
-
         });
 
         if (!checkPermissions()) {

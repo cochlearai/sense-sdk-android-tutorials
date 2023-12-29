@@ -11,6 +11,11 @@ public class Item {
         this.file = file;
     }
 
-    String GetFilename() { return this.filename; }
-    File GetFile() { return this.file; }
+    String GetFilename() {
+        return this.filename;
+    }
+
+    File GetFile() {
+        return this.file;
+    }
 }

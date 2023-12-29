@@ -17,7 +17,9 @@ public class Adapter extends RecyclerView.Adapter<Adapter.ViewHolder> implements
     private int selectedPosition = -1;
 
     @Override
-    public int getItemCount() { return items.size(); }
+    public int getItemCount() {
+        return items.size();
+    }
 
     @NonNull
     @Override
@@ -46,9 +48,17 @@ public class Adapter extends RecyclerView.Adapter<Adapter.ViewHolder> implements
         listener.OnItemClick(viewHolder, view, position);
     }
 
-    void AddItem(Item item) { items.add(item); }
-    Item GetItem(int position) { return items.get(position); }
-    void SetOnItemClickListener(OnItemClickListener listener) { this.listener = listener; }
+    void AddItem(Item item) {
+        items.add(item);
+    }
+
+    Item GetItem(int position) {
+        return items.get(position);
+    }
+
+    void SetOnItemClickListener(OnItemClickListener listener) {
+        this.listener = listener;
+    }
 
     public class ViewHolder extends RecyclerView.ViewHolder {
         TextView tv;
@@ -58,8 +68,7 @@ public class Adapter extends RecyclerView.Adapter<Adapter.ViewHolder> implements
 
             tv = itemView.findViewById(R.id.textview);
             itemView.setOnClickListener(view -> {
-                if (listener == null)
-                    return;
+                if (listener == null) return;
                 notifyItemChanged(selectedPosition);
                 selectedPosition = getLayoutPosition();
                 notifyItemChanged(selectedPosition);

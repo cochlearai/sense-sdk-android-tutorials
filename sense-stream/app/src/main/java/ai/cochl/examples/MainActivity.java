@@ -98,34 +98,41 @@ public class MainActivity extends AppCompatActivity {
             Thread thread = new Thread(progressBar);
             thread.start();
 
+            sense = Sense.getInstance();
+
+            Sense.Parameters senseParams = new Sense.Parameters();
+            senseParams.metrics.retentionPeriod = 0;  // days
+            senseParams.metrics.freeDiskSpace = 100;  // MB
+            senseParams.metrics.pushPeriod = 30;      // seconds
+
+            senseParams.deviceName = "Android device.";
+
+            senseParams.logLevel = 0;
+
+            senseParams.hopSizeControl.enable = true;
+            senseParams.sensitivityControl.enable = true;
+            senseParams.resultAbbreviation.enable = true;
+            senseParams.labelHiding.enable = true;
+
             try {
-                sense = Sense.getInstance();
-
-                Sense.Parameters senseParams = new Sense.Parameters();
-                senseParams.metrics.retentionPeriod = 0;  // days
-                senseParams.metrics.freeDiskSpace = 100;  // MB
-                senseParams.metrics.pushPeriod = 30;      // seconds
-
-                senseParams.deviceName = "Android device.";
-
-                senseParams.logLevel = 0;
-
-                senseParams.hopSizeControl.enable = true;
-                senseParams.sensitivityControl.enable = true;
-                senseParams.resultAbbreviation.enable = true;
-                senseParams.labelHiding.enable = true;
-
                 sense.init(projectKey, senseParams);
                 sense.addInput(new AudioRecord(AUDIO_SOURCE, SAMPLE_RATE, CHANNEL_CONFIG,
                         AUDIO_FORMAT, RECORD_BUF_SIZE));
-                sensePredict();
             } catch (CochlException e) {
                 runOnUiThread(() -> {
                     GetToast(this, e.getMessage()).show();
                     finish();
                 });
             }
+
             runOnUiThread(() -> progressBar.setStop());
+            try {
+                thread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+
+            sensePredict();
         }).start();
     }
 

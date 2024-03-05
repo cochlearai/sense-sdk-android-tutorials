@@ -96,6 +96,9 @@ public class MainActivity extends AppCompatActivity {
             }).start();
         });
 
+        copyAssets();
+        addWavFiles();
+
         if (!checkPermissions()) {
             requestPermissions();
         } else {
@@ -109,25 +112,23 @@ public class MainActivity extends AppCompatActivity {
             Thread thread = new Thread(progressBar);
             thread.start();
 
-            copyAssets();
-            addWavFiles();
+            sense = Sense.getInstance();
+
+            Sense.Parameters senseParams = new Sense.Parameters();
+            senseParams.metrics.retentionPeriod = 0;  // days
+            senseParams.metrics.freeDiskSpace = 100;  // MB
+            senseParams.metrics.pushPeriod = 30;      // seconds
+
+            senseParams.deviceName = "Android device.";
+
+            senseParams.logLevel = 0;
+
+            senseParams.hopSizeControl.enable = true;
+            senseParams.sensitivityControl.enable = true;
+            senseParams.resultAbbreviation.enable = true;
+            senseParams.labelHiding.enable = false;  // stream mode only
+
             try {
-                sense = Sense.getInstance();
-
-                Sense.Parameters senseParams = new Sense.Parameters();
-                senseParams.metrics.retentionPeriod = 0;  // days
-                senseParams.metrics.freeDiskSpace = 100;  // MB
-                senseParams.metrics.pushPeriod = 30;      // seconds
-
-                senseParams.deviceName = "Android device.";
-
-                senseParams.logLevel = 0;
-
-                senseParams.hopSizeControl.enable = true;
-                senseParams.sensitivityControl.enable = true;
-                senseParams.resultAbbreviation.enable = true;
-                senseParams.labelHiding.enable = false;  // stream mode only
-
                 sense.init(projectKey, senseParams);
             } catch (CochlException e) {
                 runOnUiThread(() -> {
@@ -135,6 +136,7 @@ public class MainActivity extends AppCompatActivity {
                     finish();
                 });
             }
+
             runOnUiThread(() -> progressBar.setStop());
         }).start();
     }

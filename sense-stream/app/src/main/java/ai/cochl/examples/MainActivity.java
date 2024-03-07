@@ -118,6 +118,7 @@ public class MainActivity extends AppCompatActivity {
                 sense.init(projectKey, senseParams);
                 sense.addInput(new AudioRecord(AUDIO_SOURCE, SAMPLE_RATE, CHANNEL_CONFIG,
                         AUDIO_FORMAT, RECORD_BUF_SIZE));
+                sensePredict();
             } catch (CochlException e) {
                 runOnUiThread(() -> {
                     GetToast(this, e.getMessage()).show();
@@ -131,8 +132,6 @@ public class MainActivity extends AppCompatActivity {
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-
-            sensePredict();
         }).start();
     }
 

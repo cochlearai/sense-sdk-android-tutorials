@@ -150,7 +150,7 @@ public class MainActivity extends AppCompatActivity {
 
         sense.predict(new Sense.OnPredictListener() {
             @Override
-            public void onReceivedResult(JSONObject json) {
+            public void onReceivedFileResult(JSONObject json) {
                 try {
                     if (resultAbbreviation) {
                         JSONArray abbreviations = json.getJSONArray("abbreviations");
@@ -173,6 +173,10 @@ public class MainActivity extends AppCompatActivity {
                 } finally {
                     runOnUiThread(() -> progressBar.setStop());
                 }
+            }
+            
+            @Override
+            public void onReceivedStreamResult(JSONObject json, float[] audioSample) {
             }
 
             @Override

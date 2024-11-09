@@ -84,15 +84,10 @@ public class MainActivity extends AppCompatActivity {
             if (!fileSelected) return;
 
             new Thread(() -> {
-                try {
-                    sense.addInput(selectedItem.GetFile());
-                    fileSelected = false;
-                    selectedItem = null;
-                    runOnUiThread(() -> btnPredict.setEnabled(false));
-                    sensePredict();
-                } catch (CochlException e) {
-                    runOnUiThread(() -> GetToast(this, e.getMessage()).show());
-                }
+                sensePredict(selectedItem.GetFile());
+                fileSelected = false;
+                selectedItem = null;
+                runOnUiThread(() -> btnPredict.setEnabled(false));
             }).start();
         });
 
@@ -123,10 +118,8 @@ public class MainActivity extends AppCompatActivity {
 
             senseParams.logLevel = 0;
 
-            senseParams.hopSizeControl.enable = true;
             senseParams.sensitivityControl.enable = true;
             senseParams.resultAbbreviation.enable = true;
-            senseParams.labelHiding.enable = false;  // stream mode only
 
             try {
                 sense.init(projectKey, senseParams);
@@ -141,49 +134,35 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-    private void sensePredict() {
-        boolean resultAbbreviation = sense.getParameters().resultAbbreviation.enable;
-
+    private void sensePredict(File file) {
         progressBar = new ProgressBar(handler, findViewById(R.id.inc_progress_bar));
         Thread thread = new Thread(progressBar);
         thread.start();
 
-        sense.predict(new Sense.OnPredictListener() {
-            @Override
-            public void onReceivedResult(JSONObject json) {
-                try {
-                    if (resultAbbreviation) {
-                        JSONArray abbreviations = json.getJSONArray("abbreviations");
-                        Append("<Result summary>");
-                        for (int i = 0; i < abbreviations.length(); ++i) {
-                            Append(abbreviations.getString(i));
-                        }
-                        /*
-                         Even if you use the result abbreviation, you can still get precise
-                         results like below if necessary:
-                         String result = json.getJSONObject("result").toString(2);
-                         Append(result);
-                        */
-                    } else {
-                        String result = json.getJSONObject("result").toString(2);
-                        Append(result);
-                    }
-                } catch (JSONException e) {
-                    e.printStackTrace();
-                } finally {
-                    runOnUiThread(() -> progressBar.setStop());
-                }
-            }
+        try {
+            String filePath = file.getAbsolutePath();
+            JSONObject result = sense.predict(filePath);
 
-            @Override
-            public void onError(CochlException e) {
-                runOnUiThread(() -> {
-                    progressBar.setStop();
-                    GetToast(context, e.getMessage()).show();
-                    sense.stopPredict();
-                });
+            boolean resultAbbreviation = sense.getParameters().resultAbbreviation.enable;
+            if (resultAbbreviation) {
+                JSONArray abbreviations = result.getJSONArray("abbreviations");
+                Append("<Result summary>");
+                for (int i = 0; i < abbreviations.length(); ++i) {
+                    Append(abbreviations.getString(i));
+                    // Even if you use the result abbreviation, you can still get precise
+                    // results like below if necessary:
+                    // Append(result.getJSONObject("result").toString(2));
+                }
+            } else {
+                Append(result.getJSONObject("result").toString(2));
             }
-        });
+        } catch (JSONException e) {
+            e.printStackTrace();
+        } catch (CochlException e) {
+            runOnUiThread(() -> GetToast(context, e.getMessage()).show());
+        } finally {
+            runOnUiThread(() -> progressBar.setStop());
+        }
     }
 
     private void Append(String msg) {

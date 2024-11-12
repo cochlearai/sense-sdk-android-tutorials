@@ -13,6 +13,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Message;
 import android.provider.Settings;
 import android.text.method.ScrollingMovementMethod;
 import android.widget.Button;
@@ -29,6 +30,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.lang.ref.WeakReference;
 import java.util.Objects;
 
 import ai.cochl.sensesdk.CochlException;
@@ -36,21 +38,28 @@ import ai.cochl.sensesdk.Sense;
 
 public class MainActivity extends AppCompatActivity {
     private final String projectKey = "Your project key";
+
     private final int SENSE_SDK_REQUEST_CODE = 0;
-    private final int AUDIO_SOURCE = MediaRecorder.AudioSource.UNPROCESSED;
-    private final int SAMPLE_RATE = 22050;
-    private final int CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO;
-    private final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_FLOAT;
-    private final int RECORD_BUF_SIZE = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG,
-            AUDIO_FORMAT);
-    private final Handler handler = new Handler(Looper.getMainLooper());
     private final String[] permissionList = {Manifest.permission.INTERNET,
             Manifest.permission.RECORD_AUDIO};
-    private Sense sense = null;
+
+    private final int SAMPLE_RATE = 22050;
+
+    private static Sense sense = null;
+    private static boolean pause = false;
+    private static Object audioSample = null;
+    private static boolean resultAbbreviation;
+    private static final String keyResultAbbreviation = "abbreviations";
+
+    private static Handler mainHandler = null;
+    private static BackgroundHandler backgroundHandler = null;
+    private static final int AUDIO_READY = 1;
+    private static final int EXIT_APP = 2;
+
     private boolean settingsButtonClicked = false;
     private ProgressBar progressBar;
     private TextView event;
-    private Context context;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,7 +69,6 @@ public class MainActivity extends AppCompatActivity {
 
         event = findViewById(R.id.event);
         event.setMovementMethod(new ScrollingMovementMethod());
-        context = this;
 
         Button btnPause = findViewById(R.id.pause);
         Button btnClear = findViewById(R.id.clear);
@@ -69,10 +77,10 @@ public class MainActivity extends AppCompatActivity {
             String strBtnResume = getResources().getString(R.string.resume);
 
             if (btnPause.getText().equals(strBtnPause)) {
-                sense.pause();
+                pause = true;
                 btnPause.setText(strBtnResume);
             } else {
-                sense.resume();
+                pause = false;
                 btnPause.setText(strBtnPause);
             }
         });
@@ -94,7 +102,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         new Thread(() -> {
-            progressBar = new ProgressBar(handler, findViewById(R.id.inc_progress_bar));
+            progressBar = new ProgressBar(new Handler(Looper.getMainLooper()), findViewById(R.id.inc_progress_bar));
             Thread thread = new Thread(progressBar);
             thread.start();
 
@@ -109,22 +117,21 @@ public class MainActivity extends AppCompatActivity {
 
             senseParams.logLevel = 0;
 
-            senseParams.hopSizeControl.enable = true;
             senseParams.sensitivityControl.enable = true;
             senseParams.resultAbbreviation.enable = true;
-            senseParams.labelHiding.enable = true;
 
             try {
                 sense.init(projectKey, senseParams);
-                sense.addInput(new AudioRecord(AUDIO_SOURCE, SAMPLE_RATE, CHANNEL_CONFIG,
-                        AUDIO_FORMAT, RECORD_BUF_SIZE));
-                sensePredict();
+                resultAbbreviation = sense.getParameters().resultAbbreviation.enable;
             } catch (CochlException e) {
                 runOnUiThread(() -> {
                     GetToast(this, e.getMessage()).show();
                     finish();
                 });
             }
+
+            initMainHandler();
+            startBackgroundThread();
 
             runOnUiThread(() -> progressBar.setStop());
             try {
@@ -135,45 +142,255 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-    private void sensePredict() {
-        boolean resultAbbreviation = sense.getParameters().resultAbbreviation.enable;
+    private void initMainHandler() {
+        mainHandler = new MainHandler(this, Looper.getMainLooper());
+    }
 
-        sense.predict(new Sense.OnPredictListener() {
-            @Override
-            public void onReceivedResult(JSONObject json) {
-                try {
-                    if (resultAbbreviation) {
-                        JSONArray abbreviations = json.getJSONArray("abbreviations");
-                        for (int i = 0; i < abbreviations.length(); ++i) {
-                            Append(abbreviations.getString(i));
-                        }
-                        /*
-                         Even if you use the result abbreviation, you can still get precise
-                         results like below if necessary:
-                         String frame_result = json.getJSONObject("frame_result").toString(2);
-                         Append(frame_result);
-                        */
-                    } else {
-                        Append("---------NEW FRAME---------");
-                        String frame_result = json.getJSONObject("frame_result").toString(2);
-                        Append(frame_result);
-                    }
-                } catch (JSONException e) {
-                    e.printStackTrace();
+    private void startBackgroundThread() {
+        Thread backgroundThread = new Thread(() -> {
+            // Prepare the looper and the message queue for this thread
+            Looper.prepare();
+
+            // Initialize the background handler
+            initBackgroundHandler();
+
+            // Start the data production method
+            readAudioData();
+
+            // Begin the loop to process the message queue (audio data)
+            Looper.loop();
+        });
+        backgroundThread.start();
+    }
+
+    private void initBackgroundHandler() {
+        backgroundHandler = new BackgroundHandler(Looper.myLooper());
+    }
+
+    // You can replace this part receiving audio data with what you want to use.
+    private void readAudioData() {
+        // AudioEncoding Inner Class
+        class AudioEncoding {
+            // For good performance, audio encoding allows only two, restricting the use of other encodings.
+            public static final int ENCODING_PCM_FLOAT = AudioFormat.ENCODING_PCM_FLOAT;
+            public static final int ENCODING_PCM_16BIT = AudioFormat.ENCODING_PCM_16BIT;
+
+            private final int encoding;
+
+            public AudioEncoding(int encodingType) {
+                if (encodingType == ENCODING_PCM_FLOAT || encodingType == ENCODING_PCM_16BIT) {
+                    this.encoding = encodingType;
+                } else {
+                    this.encoding = ENCODING_PCM_16BIT;  // default audio encoding
                 }
             }
 
-            @Override
-            public void onError(CochlException e) {
-                runOnUiThread(() -> {
-                    GetToast(context, e.getMessage()).show();
-                    sense.stopPredict();
-                });
+            public int getEncoding() {
+                return encoding;
             }
-        });
+        }
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
+
+        int audioSource = MediaRecorder.AudioSource.UNPROCESSED;
+        int channelConfig = AudioFormat.CHANNEL_IN_MONO;
+        AudioEncoding encoding = new AudioEncoding(AudioFormat.ENCODING_PCM_FLOAT);
+        int bufferSizeInBytes = AudioRecord.getMinBufferSize(SAMPLE_RATE, channelConfig, encoding.getEncoding());
+
+        AudioRecord recorder;
+        try {
+            recorder = new AudioRecord(audioSource, SAMPLE_RATE, channelConfig, encoding.getEncoding(), bufferSizeInBytes);
+        } catch (Exception e) {
+            sendExitMessage(e.toString());
+            return;
+        }
+
+        // The buffer size must be obtained in the following way after calling the init method:
+        int bufferSize = (int) (SAMPLE_RATE * recorder.getChannelCount() * sense.getHopSize());
+        Object buffer = (recorder.getAudioFormat() == AudioFormat.ENCODING_PCM_FLOAT ? new float[bufferSize] : new short[bufferSize]);
+
+        recorder.startRecording();
+
+        while (recorder.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
+            try {
+                int statusRead;
+
+                // This method is a blocking method that reads audio data
+                if (buffer instanceof float[]) {
+                    statusRead = recorder.read((float[]) buffer, 0, bufferSize, AudioRecord.READ_BLOCKING);
+                } else {
+                    statusRead = recorder.read((short[]) buffer, 0, bufferSize, AudioRecord.READ_BLOCKING);
+                }
+
+                if (statusRead <= 0) {
+                    throw new Exception("Failed to read audio data");
+                }
+            } catch (Exception e) {
+                sendExitMessage(e.toString());
+                break;
+            }
+
+            Message msg = mainHandler.obtainMessage(AUDIO_READY, buffer);
+            mainHandler.sendMessage(msg);
+        }
+
+        try {
+            recorder.stop();
+            recorder.release();
+            exitApp();
+        } catch (Exception e) {
+            sendExitMessage(e.toString());
+        }
+    }
+
+    private void sendExitMessage(String reason) {
+        Message msg = mainHandler.obtainMessage(EXIT_APP, reason);
+        mainHandler.sendMessage(msg);
+    }
+
+    private void sensePredict(Object buf) {
+        try {
+            performSensePredict(buf);
+        } catch (CochlException e) {
+            sendExitMessage(e.toString());
+        }
+    }
+
+    private void performSensePredict(Object buf) {
+        if (audioSample == null) {  // first frame
+            if (buf instanceof float[]) {
+                float[] floatBuf = (float[]) buf;
+                audioSample = new float[floatBuf.length * 2];
+                System.arraycopy(floatBuf, 0, (float[]) audioSample, floatBuf.length, floatBuf.length);
+            } else {
+                short[] shortBuf = (short[]) buf;
+                audioSample = new short[shortBuf.length * 2];
+                System.arraycopy(shortBuf, 0, (short[]) audioSample, shortBuf.length, shortBuf.length);
+            }
+            return;
+        }
+
+        if (buf instanceof short[]) {
+            short[] shortBuf = (short[]) buf;
+            System.arraycopy((short[]) audioSample, shortBuf.length, (short[]) audioSample, 0, shortBuf.length);
+            System.arraycopy(shortBuf, 0, (short[]) audioSample, shortBuf.length, shortBuf.length);
+        } else {
+            float[] floatBuf = (float[]) buf;
+            System.arraycopy((float[]) audioSample, floatBuf.length, (float[]) audioSample, 0, floatBuf.length);
+            System.arraycopy(floatBuf, 0, (float[]) audioSample, floatBuf.length, floatBuf.length);
+        }
+
+        JSONObject frameResult;
+        if (audioSample instanceof short[]) {
+            frameResult = sense.predict((short[]) audioSample, SAMPLE_RATE);
+        } else {
+            frameResult = sense.predict((float[]) audioSample, SAMPLE_RATE);
+        }
+
+        try {
+            if (resultAbbreviation) {
+                JSONArray abbreviations = frameResult.getJSONArray(keyResultAbbreviation);
+                for (int i = 0; i < abbreviations.length(); ++i) {
+                    Append(abbreviations.getString(i));
+                }
+                // Even if you use the result abbreviation, you can still get precise
+                // results like below if necessary:
+                // Append(printResult(frameResult));
+            } else {
+                Append("---------NEW FRAME---------");
+                Append(printResult(frameResult));
+            }
+        } catch (JSONException e) {
+            sendExitMessage(e.toString());
+        }
+    }
+
+    private String printResult(JSONObject frameResult) throws JSONException {
+        frameResult.remove(keyResultAbbreviation);
+        return frameResult.toString(2);
+    }
+
+    @SuppressWarnings("unused")
+    private String printResult(JSONObject frameResult, int indent) throws JSONException {
+        frameResult.remove(keyResultAbbreviation);
+        return frameResult.toString(indent);
+    }
+
+    private void exitApp() {
+        finishAndRemoveTask(); // This method finishes the activity and removes it from the recent apps list.
+
+        // Give the system some time to call onDestroy()
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            System.exit(0); // This line forcefully exits the app.
+        }, 500); // Delay for half a second to allow onDestroy to be called
+    }
+
+    private void exitApp(String reason) {
+        GetToast(this, "Exiting app due to: " + reason).show();
+        exitApp();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+
+        if (backgroundHandler != null) {
+            backgroundHandler.getLooper().quit();
+        }
+
+        if (sense != null) {
+            sense.terminate();
+            sense = null;
+        }
+    }
+
+    private static class MainHandler extends Handler {
+        private final WeakReference<MainActivity> activityReference;
+
+        MainHandler(MainActivity activity, Looper looper) {
+            super(looper);
+            activityReference = new WeakReference<>(activity);
+        }
+
+        @Override
+        public void handleMessage(@NonNull Message msg) {
+            MainActivity activity = activityReference.get();
+            if (activity != null) {
+                if (msg.what == AUDIO_READY) {
+                    activity.sensePredict(msg.obj);
+                } else if (msg.what == EXIT_APP) {
+                    String reason = (String) msg.obj;
+                    activity.exitApp(reason);
+                }
+            }
+        }
+    }
+
+    private static class BackgroundHandler extends Handler {
+        BackgroundHandler(Looper looper) {
+            super(looper);
+        }
+
+        @Override
+        public void handleMessage(@NonNull Message msg) {
+            // No messages expected in background handler in this tutorial
+        }
     }
 
     private void Append(String msg) {
+        if (pause) {
+            return;
+        }
+
         String currentText = (event.getText().toString() + msg + "\n");
 
         int maxTextViewStringLength = 8192;
@@ -294,14 +511,5 @@ public class MainActivity extends AppCompatActivity {
                 finish();
             }
         }
-    }
-
-    @Override
-    protected void onDestroy() {
-        if (sense != null) {
-            sense.terminate();
-            sense = null;
-        }
-        super.onDestroy();
     }
 }

@@ -25,6 +25,7 @@ public class ProgressBar implements Runnable {
                 e.printStackTrace();
             }
         }
+        isTaskDone = false;
         handler.post(() -> progressBar.setVisibility(View.INVISIBLE));
     }
 

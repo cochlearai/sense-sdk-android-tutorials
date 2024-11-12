@@ -40,14 +40,15 @@ import ai.cochl.sensesdk.Sense;
 
 public class MainActivity extends AppCompatActivity {
     private final String projectKey = "Your project key";
+
     private final int SENSE_SDK_REQUEST_CODE = 0;
-    private final Handler handler = new Handler(Looper.getMainLooper());
     private final String[] permissionList = {Manifest.permission.INTERNET};
+
     private Sense sense = null;
+
     private boolean settingsButtonClicked = false;
     private ProgressBar progressBar;
     private TextView event;
-    private Context context;
     private Adapter adapter;
     private boolean fileSelected = false;
     private Item selectedItem = null;
@@ -60,7 +61,6 @@ public class MainActivity extends AppCompatActivity {
 
         event = findViewById(R.id.event);
         event.setMovementMethod(new ScrollingMovementMethod());
-        context = this;
 
         RecyclerView recyclerView = findViewById(R.id.files);
         recyclerView.setLayoutManager(new LinearLayoutManager(this, RecyclerView.VERTICAL, false));
@@ -72,6 +72,8 @@ public class MainActivity extends AppCompatActivity {
 
         btnPredict.setEnabled(false);
         btnClear.setOnClickListener(v -> event.setText(""));
+
+        progressBar = new ProgressBar(new Handler(Looper.getMainLooper()), findViewById(R.id.inc_progress_bar));
 
         adapter.SetOnItemClickListener((viewHolder, view, position) -> {
             if (!fileSelected) {
@@ -103,7 +105,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void senseInit() {
         new Thread(() -> {
-            progressBar = new ProgressBar(handler, findViewById(R.id.inc_progress_bar));
             Thread thread = new Thread(progressBar);
             thread.start();
 
@@ -135,7 +136,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void sensePredict(File file) {
-        progressBar = new ProgressBar(handler, findViewById(R.id.inc_progress_bar));
         Thread thread = new Thread(progressBar);
         thread.start();
 
@@ -159,7 +159,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (JSONException e) {
             e.printStackTrace();
         } catch (CochlException e) {
-            runOnUiThread(() -> GetToast(context, e.getMessage()).show());
+            runOnUiThread(() -> GetToast(this, e.getMessage()).show());
         } finally {
             runOnUiThread(() -> progressBar.setStop());
         }

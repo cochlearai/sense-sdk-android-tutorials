@@ -5,7 +5,7 @@ plugins {
 android {
     namespace 'ai.cochl.examples'
     // compileSdk 30
-    compileSdk 33
+    compileSdk 34
     buildToolsVersion "33"
 
     defaultConfig {

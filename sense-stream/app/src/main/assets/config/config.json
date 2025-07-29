@@ -1,0 +1,33 @@
+{
+    "device_name": "MySenseDevice",
+    "model_delegate": 0,
+    "num_threads": 4,
+    "log_level": 0,
+    "app_path": "~",
+    "metrics": {
+      "retention_period": 7,
+      "free_disk_space": 500,
+      "push_period": 60
+    },
+    "sensitivity_control": {
+      "enable": true,
+      "default_sensitivity": 0,
+      "sensitivity": {
+        "Gunshot": -2,
+        "GlassBreak": -1,
+        "CarHorn": 1,
+        "Whistle": 0
+      }
+    },
+    "result_abbreviation": {
+      "enable": true,
+      "default_im": 2,
+      "im": {
+        "Gunshot": 1,
+        "GlassBreak": 1,
+        "CarHorn": 3,
+        "Whistle": 2
+      }
+    }
+  }
+  

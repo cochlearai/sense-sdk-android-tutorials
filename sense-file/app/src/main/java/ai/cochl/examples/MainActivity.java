@@ -40,6 +40,7 @@ import ai.cochl.sensesdk.Sense;
 
 public class MainActivity extends AppCompatActivity {
     private final String projectKey = "Your project key";
+    private final String configPath = "config/config.json";
 
     private final int SENSE_SDK_REQUEST_CODE = 0;
     private final String[] permissionList = {Manifest.permission.INTERNET};
@@ -109,24 +110,20 @@ public class MainActivity extends AppCompatActivity {
             thread.start();
 
             sense = Sense.getInstance();
-
-            Sense.Parameters senseParams = new Sense.Parameters();
-            senseParams.metrics.retentionPeriod = 0;  // days
-            senseParams.metrics.freeDiskSpace = 100;  // MB
-            senseParams.metrics.pushPeriod = 30;      // seconds
-
-            senseParams.deviceName = "Android device.";
-
-            senseParams.logLevel = 0;
-
-            senseParams.sensitivityControl.enable = true;
-            senseParams.resultAbbreviation.enable = true;
-
             try {
-                sense.init(projectKey, senseParams);
+                // Check if config file exists
+                File configFile = new File(this.getExternalFilesDir(null), configPath);
+                if (!configFile.exists()) {
+                    runOnUiThread(() -> {
+                        GetToast(this, "Config file not found: " + configFile.getAbsolutePath()).show();
+                        finish();
+                    });
+                    return;
+                }
+                sense.init(projectKey, configFile.getAbsolutePath());
             } catch (CochlException e) {
                 runOnUiThread(() -> {
-                    GetToast(this, e.getMessage()).show();
+                    GetToast(this, "Sense SDK initialization failed: " + e.getMessage()).show();
                     finish();
                 });
             }

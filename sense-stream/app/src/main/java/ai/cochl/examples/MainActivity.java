@@ -458,20 +458,71 @@ public class MainActivity extends AppCompatActivity {
 
     // UI helpers
     private void Append(String msg) {
-        if (pause) return;
+        if (pause || event == null) return;
 
-        String currentText = event.getText().toString() + msg + "\n";
-        int maxTextViewStringLength = 8192;
-        if (currentText.length() > maxTextViewStringLength) {
-            int idx = currentText.indexOf('\n', currentText.length() - maxTextViewStringLength);
-            if (idx >= 0) currentText = currentText.substring(idx + 1);
+        // Prefer working with Editable to avoid extra String allocations
+        android.text.Editable e = event.getEditableText();
+        if (e != null) {
+            e.append(msg);
+            e.append('\n');           // Editable supports append(char)
+        } else {
+            event.append(msg);        // TextView.append returns void (no chaining)
+            event.append("\n");       // Use String, not char
         }
-        event.setText(currentText);
-        event.post(() -> {
-            final int scrollAmount = event.getLayout().getLineTop(event.getLineCount()) - event.getHeight();
-            event.scrollTo(0, Math.max(scrollAmount, 0));
-        });
+
+        // Truncate to ~8KB from the head to avoid growing forever
+        final int maxLen = 8192;
+        CharSequence text = event.getText();
+        int len = text.length();
+        if (len > maxLen) {
+            int cutFrom = Math.max(0, len - maxLen);
+            // Find a newline at/after the cutoff so we drop whole lines
+            int firstNewline = -1;
+            for (int i = cutFrom; i < len; i++) {
+                if (text.charAt(i) == '\n') { firstNewline = i; break; }
+            }
+            int deleteUntil = (firstNewline >= 0 ? firstNewline + 1 : cutFrom);
+
+            // Delete efficiently if we have an Editable
+            if (e != null) {
+                e.delete(0, deleteUntil);
+            } else {
+                event.setText(text.subSequence(deleteUntil, len));
+            }
+        }
+
+        // Scroll after layout is ready
+        event.removeCallbacks(scrollToBottomOnce);
+        event.post(scrollToBottomOnce);
     }
+
+    // Runs on UI thread; only accesses 'event'
+    private final Runnable scrollToBottomOnce = new Runnable() {
+        @Override public void run() {
+            if (event == null) return;
+
+            android.text.Layout layout = event.getLayout();
+            if (layout == null) {
+                // Layout not ready yet → defer exactly once to after layout pass.
+                event.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+                    @Override public boolean onPreDraw() {
+                        // Remove this listener and try again now that we're about to draw
+                        event.getViewTreeObserver().removeOnPreDrawListener(this);
+                        android.text.Layout l = event.getLayout();
+                        if (l != null) {
+                            int scrollAmount = l.getLineTop(event.getLineCount()) - event.getHeight();
+                            event.scrollTo(0, Math.max(scrollAmount, 0));
+                        }
+                        return true; // keep drawing
+                    }
+                });
+                return;
+            }
+
+            int scrollAmount = layout.getLineTop(event.getLineCount()) - event.getHeight();
+            event.scrollTo(0, Math.max(scrollAmount, 0));
+        }
+    };
 
     private Toast GetToast(Context context, String msg) {
         GradientDrawable gd = new GradientDrawable();
@@ -544,7 +595,6 @@ public class MainActivity extends AppCompatActivity {
                 .setPositiveButton("Go to Settings", (dialog, which) -> {
                     Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                             Uri.fromParts("package", getPackageName(), null));
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     startActivity(intent);
                     settingsButtonClicked = true;
                 }).setNegativeButton("Cancel", (dialog, which) -> {

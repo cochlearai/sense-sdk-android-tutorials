@@ -479,7 +479,10 @@ public class MainActivity extends AppCompatActivity {
             // Find a newline at/after the cutoff so we drop whole lines
             int firstNewline = -1;
             for (int i = cutFrom; i < len; i++) {
-                if (text.charAt(i) == '\n') { firstNewline = i; break; }
+                if (text.charAt(i) == '\n') {
+                    firstNewline = i;
+                    break;
+                }
             }
             int deleteUntil = (firstNewline >= 0 ? firstNewline + 1 : cutFrom);
 
@@ -498,14 +501,16 @@ public class MainActivity extends AppCompatActivity {
 
     // Runs on UI thread; only accesses 'event'
     private final Runnable scrollToBottomOnce = new Runnable() {
-        @Override public void run() {
+        @Override
+        public void run() {
             if (event == null) return;
 
             android.text.Layout layout = event.getLayout();
             if (layout == null) {
                 // Layout not ready yet → defer exactly once to after layout pass.
                 event.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
-                    @Override public boolean onPreDraw() {
+                    @Override
+                    public boolean onPreDraw() {
                         // Remove this listener and try again now that we're about to draw
                         event.getViewTreeObserver().removeOnPreDrawListener(this);
                         android.text.Layout l = event.getLayout();

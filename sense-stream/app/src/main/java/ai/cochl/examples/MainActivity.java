@@ -140,6 +140,12 @@ public class MainActivity extends AppCompatActivity {
                 senseReady = true;
                 resultSummary = sense.getParameters().resultSummary.enable;
 
+                Append("Selected tags: ");
+                StringBuilder sb = new StringBuilder();
+                for (String tag : sense.getSelectedTags())
+                    sb.append("** ").append(tag).append("\n");
+                Append(sb.toString());
+
                 runOnUiThread(() -> {
                     initMainHandler();
 
@@ -299,6 +305,9 @@ public class MainActivity extends AppCompatActivity {
                 for (int i = 0; i < summaries.length(); ++i) {
                     Append(summaries.getString(i));
                 }
+                // Even if you use the result abbreviation, you can still get precise
+                // results like below if necessary:
+                // Append(printResult(frameResult));
             } else {
                 Append("---------NEW FRAME---------");
                 Append(printResult(frameResult));

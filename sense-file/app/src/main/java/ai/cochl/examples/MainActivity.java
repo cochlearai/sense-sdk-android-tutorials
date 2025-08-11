@@ -142,6 +142,12 @@ public class MainActivity extends AppCompatActivity {
                 resultSummary = sense.getParameters().resultSummary.enable;
 
                 addWavFiles();
+
+                Append("Selected tags: ");
+                StringBuilder sb = new StringBuilder();
+                for (String tag : sense.getSelectedTags())
+                    sb.append("** ").append(tag).append("\n");
+                Append(sb.toString());
             } catch (CochlException e) {
                 runOnUiThread(() -> {
                     GetToast(this, e.getMessage()).show();
@@ -174,6 +180,9 @@ public class MainActivity extends AppCompatActivity {
                 Append("<Result summary>");
                 for (int i = 0; i < abbreviations.length(); ++i) {
                     Append(abbreviations.getString(i));
+                    // Even if you use the result abbreviation, you can still get precise
+                    // results like below if necessary:
+                    // Append(result.getJSONObject("result").toString(2));
                 }
             } else {
                 Append(result.getJSONObject("result").toString(2));

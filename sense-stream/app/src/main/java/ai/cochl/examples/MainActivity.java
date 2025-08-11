@@ -140,6 +140,12 @@ public class MainActivity extends AppCompatActivity {
                 senseReady = true;
                 resultSummary = sense.getParameters().resultSummary.enable;
 
+                Append("Selected tags: ");
+                StringBuilder sb = new StringBuilder();
+                for (String tag : sense.getSelectedTags())
+                    sb.append("** ").append(tag).append("\n");
+                Append(sb.toString());
+
                 runOnUiThread(() -> {
                     initMainHandler();
 

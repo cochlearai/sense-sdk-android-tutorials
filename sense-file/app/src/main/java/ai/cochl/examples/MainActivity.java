@@ -4,15 +4,16 @@ import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.content.res.AssetManager;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
 import android.provider.Settings;
 import android.text.method.ScrollingMovementMethod;
+import android.util.Log;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -29,10 +30,6 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Files;
 import java.util.Objects;
 
 import ai.cochl.sensesdk.CochlException;
@@ -40,18 +37,28 @@ import ai.cochl.sensesdk.Sense;
 
 public class MainActivity extends AppCompatActivity {
     private final String projectKey = "Your project key";
-
+    private final String configPath = "config/config.json";
     private final int SENSE_SDK_REQUEST_CODE = 0;
     private final String[] permissionList = {Manifest.permission.INTERNET};
 
+    // runtime state (instance fields — no statics)
     private Sense sense = null;
-
-    private boolean settingsButtonClicked = false;
-    private ProgressBar progressBar;
-    private TextView event;
+    private HandlerThread senseThread;
+    private Handler senseHandler;
+    private volatile boolean senseReady = false;
     private Adapter adapter;
     private boolean fileSelected = false;
     private Item selectedItem = null;
+
+    private boolean resultSummary;
+    private static final String keyResultSummary = "summaries";
+
+    private boolean settingsButtonClicked = false;
+
+    // progress indicator (uses your InitProgressBarTask)
+    private InitProgressBarTask progressTask = null;
+
+    private TextView event;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,9 +80,9 @@ public class MainActivity extends AppCompatActivity {
         btnPredict.setEnabled(false);
         btnClear.setOnClickListener(v -> event.setText(""));
 
-        progressBar = new ProgressBar(new Handler(Looper.getMainLooper()), findViewById(R.id.inc_progress_bar));
-
         adapter.SetOnItemClickListener((viewHolder, view, position) -> {
+            if (!senseReady) return;
+
             if (!fileSelected) {
                 fileSelected = true;
                 btnPredict.setEnabled(true);
@@ -93,9 +100,6 @@ public class MainActivity extends AppCompatActivity {
             }).start();
         });
 
-        copyAssets();
-        addWavFiles();
-
         if (!checkPermissions()) {
             requestPermissions();
         } else {
@@ -104,86 +108,217 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void senseInit() {
-        new Thread(() -> {
-            Thread thread = new Thread(progressBar);
-            thread.start();
+        if (!new CopyAssets(this).copyAssets()) {
+            GetToast(this, "Unable to copy assets.").show();
+            finish();
+            return;
+        }
 
-            sense = Sense.getInstance();
+        // show progress with InitProgressBarTask
+        progressTask = new InitProgressBarTask(new Handler(Looper.getMainLooper()),
+                findViewById(R.id.inc_progress_bar));
+        Thread progressThread = new Thread(progressTask, "InitProgress");
+        progressThread.start();
 
-            Sense.Parameters senseParams = new Sense.Parameters();
-            senseParams.metrics.retentionPeriod = 0;  // days
-            senseParams.metrics.freeDiskSpace = 100;  // MB
-            senseParams.metrics.pushPeriod = 30;      // seconds
+        senseThread = new HandlerThread("SenseThread");
+        senseThread.start();
+        senseHandler = new Handler(senseThread.getLooper());
 
-            senseParams.deviceName = "Android device.";
-
-            senseParams.logLevel = 0;
-
-            senseParams.sensitivityControl.enable = true;
-            senseParams.resultAbbreviation.enable = true;
-
+        senseHandler.post(() -> {
             try {
-                sense.init(projectKey, senseParams);
+                sense = Sense.getInstance();
+
+                File configFile = new File(this.getExternalFilesDir(null), configPath);
+                if (!configFile.exists()) {
+                    runOnUiThread(() -> {
+                        GetToast(this, "Config file not found: " + configFile.getAbsolutePath()).show();
+                        safeExit();
+                    });
+                }
+
+                sense.init(projectKey, configFile.getAbsolutePath());
+
+                senseReady = true;
+                resultSummary = sense.getParameters().resultSummary.enable;
+
+                addWavFiles();
             } catch (CochlException e) {
                 runOnUiThread(() -> {
                     GetToast(this, e.getMessage()).show();
-                    finish();
+                    safeExit(/*fromInitFail=*/true); // suppress terminate() when init is failed
+                });
+            } finally {
+                // hide progress
+                runOnUiThread(() -> {
+                    if (progressTask != null) progressTask.stop();
                 });
             }
-
-            runOnUiThread(() -> progressBar.setStop());
-        }).start();
+        });
     }
 
     private void sensePredict(File file) {
-        Thread thread = new Thread(progressBar);
-        thread.start();
+        // show progress with InitProgressBarTask
+        progressTask = new InitProgressBarTask(new Handler(Looper.getMainLooper()),
+                findViewById(R.id.inc_progress_bar));
+        Thread progressThread = new Thread(progressTask, "InitProgress");
+        progressThread.start();
+
+        String filePath = file.getAbsolutePath();
+        Log.e("SENSE", file.getAbsolutePath());
+        JSONObject result = sense.predict(filePath);
+        Log.e("SENSE", file.getAbsolutePath());
 
         try {
-            String filePath = file.getAbsolutePath();
-            JSONObject result = sense.predict(filePath);
-
-            boolean resultAbbreviation = sense.getParameters().resultAbbreviation.enable;
-            if (resultAbbreviation) {
-                JSONArray abbreviations = result.getJSONArray("abbreviations");
+            if (resultSummary) {
+                JSONArray abbreviations = result.getJSONArray(keyResultSummary);
                 Append("<Result summary>");
                 for (int i = 0; i < abbreviations.length(); ++i) {
                     Append(abbreviations.getString(i));
-                    // Even if you use the result abbreviation, you can still get precise
-                    // results like below if necessary:
-                    // Append(result.getJSONObject("result").toString(2));
                 }
             } else {
                 Append(result.getJSONObject("result").toString(2));
             }
         } catch (JSONException e) {
-            e.printStackTrace();
-        } catch (CochlException e) {
             runOnUiThread(() -> GetToast(this, e.getMessage()).show());
         } finally {
-            runOnUiThread(() -> progressBar.setStop());
+            // hide progress
+            runOnUiThread(() -> {
+                if (progressTask != null) progressTask.stop();
+            });
         }
     }
 
-    private void Append(String msg) {
-        String currentText = (event.getText().toString() + msg + "\n");
+    private void safeExit() {
+        safeExit(false);
+    }
 
-        int maxTextViewStringLength = 8192;
-        if (currentText.length() > maxTextViewStringLength) {
-            int idx = currentText.indexOf('\n', currentText.length() - maxTextViewStringLength);
-            if (idx >= 0) {
-                currentText = currentText.substring(idx + 1);
+    private void safeExit(boolean fromInitFail) {
+        // Terminate sense
+        if (senseHandler != null && senseThread != null) {
+            if (senseReady && !fromInitFail) {
+                final Object latch = new Object();
+                final boolean[] done = {false};
+                senseHandler.post(() -> {
+                    try {
+                        sense.terminate();
+                    } catch (Exception ignored) {
+                    }
+                    synchronized (latch) {
+                        done[0] = true;
+                        latch.notifyAll();
+                    }
+                });
+
+                synchronized (latch) {
+                    if (!done[0]) try {
+                        latch.wait(1500);
+                    } catch (InterruptedException ignored) {
+                    }
+                }
+            }
+
+            // Release SenseThread
+            senseThread.quitSafely();
+            try {
+                senseThread.join(1500);
+            } catch (InterruptedException ignored) {
+            }
+            senseThread = null;
+            senseHandler = null;
+        }
+
+        sense = null;
+        senseReady = false;
+
+        if (progressTask != null) {
+            progressTask.stop();
+            progressTask = null;
+        }
+
+        finishAndRemoveTask();
+    }
+
+    private void addWavFiles() {
+        File parent = this.getExternalFilesDir(null);
+        for (File file : Objects.requireNonNull(Objects.requireNonNull(parent).listFiles())) {
+            if (file.isFile()) {
+                String filename = file.getName();
+                adapter.AddItem(new Item(filename, new File(parent, filename)));
+            }
+        }
+        this.runOnUiThread(adapter::notifyDataSetChanged);
+    }
+
+    // UI helpers
+    private void Append(String msg) {
+        // Prefer working with Editable to avoid extra String allocations
+        android.text.Editable e = event.getEditableText();
+        if (e != null) {
+            e.append(msg);
+            e.append('\n');           // Editable supports append(char)
+        } else {
+            event.append(msg);        // TextView.append returns void (no chaining)
+            event.append("\n");       // Use String, not char
+        }
+
+        // Truncate to ~8KB from the head to avoid growing forever
+        final int maxLen = 8192;
+        CharSequence text = event.getText();
+        int len = text.length();
+        if (len > maxLen) {
+            int cutFrom = Math.max(0, len - maxLen);
+            // Find a newline at/after the cutoff so we drop whole lines
+            int firstNewline = -1;
+            for (int i = cutFrom; i < len; i++) {
+                if (text.charAt(i) == '\n') {
+                    firstNewline = i;
+                    break;
+                }
+            }
+            int deleteUntil = (firstNewline >= 0 ? firstNewline + 1 : cutFrom);
+
+            // Delete efficiently if we have an Editable
+            if (e != null) {
+                e.delete(0, deleteUntil);
+            } else {
+                event.setText(text.subSequence(deleteUntil, len));
             }
         }
 
-        event.setText(currentText);
-
-        event.post(() -> {
-            final int scrollAmount =
-                    event.getLayout().getLineTop(event.getLineCount()) - event.getHeight();
-            event.scrollTo(0, Math.max(scrollAmount, 0));
-        });
+        // Scroll after layout is ready
+        event.removeCallbacks(scrollToBottomOnce);
+        event.post(scrollToBottomOnce);
     }
+
+    // Runs on UI thread; only accesses 'event'
+    private final Runnable scrollToBottomOnce = new Runnable() {
+        @Override
+        public void run() {
+            if (event == null) return;
+
+            android.text.Layout layout = event.getLayout();
+            if (layout == null) {
+                // Layout not ready yet → defer exactly once to after layout pass.
+                event.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+                    @Override
+                    public boolean onPreDraw() {
+                        // Remove this listener and try again now that we're about to draw
+                        event.getViewTreeObserver().removeOnPreDrawListener(this);
+                        android.text.Layout l = event.getLayout();
+                        if (l != null) {
+                            int scrollAmount = l.getLineTop(event.getLineCount()) - event.getHeight();
+                            event.scrollTo(0, Math.max(scrollAmount, 0));
+                        }
+                        return true; // keep drawing
+                    }
+                });
+                return;
+            }
+
+            int scrollAmount = layout.getLineTop(event.getLineCount()) - event.getHeight();
+            event.scrollTo(0, Math.max(scrollAmount, 0));
+        }
+    };
 
     private Toast GetToast(Context context, String msg) {
         GradientDrawable gd = new GradientDrawable();
@@ -198,7 +333,6 @@ public class MainActivity extends AppCompatActivity {
         Toast toast = new Toast(context);
         toast.setDuration(Toast.LENGTH_LONG);
         toast.setView(tvToast);
-
         return toast;
     }
 
@@ -208,26 +342,23 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             }
         }
-
         return true;
     }
 
     private void requestPermissions() {
-        for (String permission : permissionList) {
-            if (checkCallingOrSelfPermission(permission) == PackageManager.PERMISSION_DENIED) {
-                requestPermissions(permissionList, SENSE_SDK_REQUEST_CODE);
-            }
-        }
+        // one shot is enough
+        requestPermissions(permissionList, SENSE_SDK_REQUEST_CODE);
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
         if (requestCode == SENSE_SDK_REQUEST_CODE) {
             boolean allPermissionsGranted = true;
-            for (int grantResult : grantResults) {
-                if (grantResult != PackageManager.PERMISSION_GRANTED) {
+            for (int r : grantResults) {
+                if (r != PackageManager.PERMISSION_GRANTED) {
                     allPermissionsGranted = false;
                     break;
                 }
@@ -260,7 +391,6 @@ public class MainActivity extends AppCompatActivity {
                 .setPositiveButton("Go to Settings", (dialog, which) -> {
                     Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                             Uri.fromParts("package", getPackageName(), null));
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     startActivity(intent);
                     settingsButtonClicked = true;
                 }).setNegativeButton("Cancel", (dialog, which) -> {
@@ -269,60 +399,6 @@ public class MainActivity extends AppCompatActivity {
                 }).create();
 
         alertDialog.show();
-    }
-
-    private void copyAssets() {
-        AssetManager assetManager = getAssets();
-        String[] files = null;
-        try {
-            files = assetManager.list("");
-        } catch (IOException ignored) {
-        }
-        if (files == null) {
-            GetToast(this, "Failed to get asset file list.").show();
-            finish();
-        }
-
-        for (String filename : Objects.requireNonNull(files)) {
-            InputStream in = null;
-            OutputStream out = null;
-            try {
-                in = assetManager.open(filename);
-                File outFile = new File(this.getExternalFilesDir(null), filename);
-                out = Files.newOutputStream(outFile.toPath());
-                copyFile(in, out);
-            } catch (IOException ignored) {
-            } finally {
-                if (in != null) {
-                    try {
-                        in.close();
-                    } catch (IOException ignored) {
-                    }
-                }
-                if (out != null) {
-                    try {
-                        out.close();
-                    } catch (IOException ignored) {
-                    }
-                }
-            }
-        }
-    }
-
-    private void copyFile(InputStream in, OutputStream out) throws IOException {
-        byte[] buffer = new byte[1024];
-        int read;
-        while ((read = in.read(buffer)) != -1) {
-            out.write(buffer, 0, read);
-        }
-    }
-
-    private void addWavFiles() {
-        File parent = this.getExternalFilesDir(null);
-        for (String filename : Objects.requireNonNull(Objects.requireNonNull(parent).list())) {
-            adapter.AddItem(new Item(filename, new File(parent, filename)));
-        }
-        this.runOnUiThread(adapter::notifyDataSetChanged);
     }
 
     @Override
@@ -339,14 +415,5 @@ public class MainActivity extends AppCompatActivity {
                 finish();
             }
         }
-    }
-
-    @Override
-    protected void onDestroy() {
-        if (sense != null) {
-            sense.terminate();
-            sense = null;
-        }
-        super.onDestroy();
     }
 }

@@ -305,6 +305,9 @@ public class MainActivity extends AppCompatActivity {
                 for (int i = 0; i < summaries.length(); ++i) {
                     Append(summaries.getString(i));
                 }
+                // Even if you use the result abbreviation, you can still get precise
+                // results like below if necessary:
+                // Append(printResult(frameResult));
             } else {
                 Append("---------NEW FRAME---------");
                 Append(printResult(frameResult));

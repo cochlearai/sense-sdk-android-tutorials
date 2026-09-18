@@ -1,4 +1,4 @@
-package ai.cochl.examples;
+package ai.cochl.tutorials;
 
 import android.os.Handler;
 import android.view.View;
@@ -26,7 +26,8 @@ public final class InitProgressBarTask implements Runnable {
 
         try {                       // Wait until stop() is called
             done.await();
-        } catch (InterruptedException ignored) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
 
         uiHandler.post(() -> bar.setVisibility(View.INVISIBLE));

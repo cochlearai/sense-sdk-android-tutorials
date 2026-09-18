@@ -1,4 +1,15 @@
-package ai.cochl.examples;
+// Copyright 2020-2026 Cochl.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+//
+// sense-stream: real-time microphone inference (Java). Ported from the full
+// runnable app at
+//   ../sense-sdk-android-tutorials/sense-stream
+// updated to the CURRENT AAR API. Helper classes (CopyAssets, InitProgressBarTask)
+// and layouts are unchanged -- take them from the tutorials repo.
+
+package ai.cochl.tutorials;
 
 import android.Manifest;
 import android.content.Context;
@@ -36,11 +47,25 @@ import ai.cochl.sensesdk.CochlException;
 import ai.cochl.sensesdk.Sense;
 
 public class MainActivity extends AppCompatActivity {
-    private final String projectKey = "Your project key";
+    // Set your project key here before running.
+    private final String projectKey = "YOUR_PROJECT_KEY";
+
     private final String configPath = "config/config.json";
     private final int SENSE_SDK_REQUEST_CODE = 0;
-    private final String[] permissionList = {Manifest.permission.INTERNET, Manifest.permission.RECORD_AUDIO};
+    private final String[] permissionList = { Manifest.permission.INTERNET, Manifest.permission.RECORD_AUDIO };
+
+    // Microphone capture rate in Hz, fixed to the model's rate. Capture rates
+    // BELOW the model rate are not supported (upsampling cannot recover the
+    // missing high frequencies the model needs); a higher device rate would be
+    // downsampled by the SDK.
     private final int SAMPLE_RATE = 22050;
+
+    // Inference hop in seconds, read from config.json's "default_hopsize" at
+    // init (see parseHopSize). Falls back to DEFAULT_HOP_SIZE when the key is
+    // absent/invalid; mirrors the cpp/python tutorials so the mic buffer stays
+    // aligned with the SDK's hop without a hardcoded, manually-synced constant.
+    private static final double DEFAULT_HOP_SIZE = 1.0;
+    private double hopSize = DEFAULT_HOP_SIZE;
 
     // runtime state (instance fields — no statics)
     private Sense sense = null;
@@ -53,10 +78,6 @@ public class MainActivity extends AppCompatActivity {
     private Thread audioThread = null;
     private volatile boolean running = false;
 
-    private float[] audioSampleFloat = null;
-    private short[] audioSampleShort = null;
-    private boolean isFloatSample = false;
-    private boolean resultSummary;
     private static final String keyResultSummary = "summaries";
 
     private boolean settingsButtonClicked = false;
@@ -99,8 +120,8 @@ public class MainActivity extends AppCompatActivity {
 
     // Initialise Sense; only on success do we start audio.
     private void senseInit() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                == PackageManager.PERMISSION_DENIED) {
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_DENIED) {
             GetToast(this, "You need to allow the permission to use this app.").show();
             finish();
             return;
@@ -137,14 +158,19 @@ public class MainActivity extends AppCompatActivity {
 
                 sense.init(projectKey, configFile.getAbsolutePath());
 
-                senseReady = true;
-                resultSummary = sense.getParameters().resultSummary.enable;
+                // Read the inference hop from config.json so the mic buffer
+                // matches the SDK's cadence (fallback keeps the prior 1.0s).
+                hopSize = parseHopSize(configFile, DEFAULT_HOP_SIZE);
 
-                Append("Selected tags: ");
-                StringBuilder sb = new StringBuilder();
-                for (String tag : sense.getSelectedTags())
-                    sb.append("** ").append(tag).append("\n");
-                Append(sb.toString());
+                // Optional: drive features at runtime via the Sense controls
+                // (after init(); AAD/AGC are stream-mode only):
+                // sense.setSensitivity("HIGH"); // VERY_LOW|LOW|NORMAL|HIGH|VERY_HIGH
+                // sense.setTagSensitivity("Footstep", "LOW"); // per-tag override
+                // sense.setResultSummaryEnabled(true);
+                // sense.enableAudioActivityDetection(true); // stream-mode only
+                // sense.enableAutomaticGainControl(true); // stream-mode only
+
+                senseReady = true;
 
                 runOnUiThread(() -> {
                     initMainHandler();
@@ -155,12 +181,13 @@ public class MainActivity extends AppCompatActivity {
             } catch (CochlException e) {
                 runOnUiThread(() -> {
                     GetToast(this, e.getMessage()).show();
-                    safeExit(/*fromInitFail=*/true); // suppress terminate() when init is failed
+                    safeExit(/* fromInitFail= */true); // suppress terminate() when init is failed
                 });
             } finally {
                 // hide progress
                 runOnUiThread(() -> {
-                    if (progressTask != null) progressTask.stop();
+                    if (progressTask != null)
+                        progressTask.stop();
                 });
             }
         });
@@ -171,20 +198,29 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startAudioThread() {
-        if (running) return;
+        if (running)
+            return;
         running = true;
         audioThread = new Thread(this::readAudioData, "AudioThread");
         audioThread.start();
     }
 
     private void readAudioData() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
+        if (ActivityCompat.checkSelfPermission(this,
+                Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             sendExitMessage("RECORD_AUDIO not granted");
             return;
         }
 
-        // Prefer UNPROCESSED/FLOAT; fallback to 16bit if needed
+        // Audio bit depth: AudioRecord's PCM encoding sets what the mic captures;
+        // the array type read below then selects the SDK format via
+        // sense.predict(...) -- float[] -> FLOAT32, short[] -> INT16.
+        // SDK-supported formats: FLOAT32, INT16, INT32, FLOAT64.
+        // Android AudioRecord can capture: ENCODING_PCM_FLOAT (= FLOAT32) and
+        // ENCODING_PCM_16BIT (= INT16); PCM_24BIT_PACKED/PCM_32BIT need API 31+.
+        // FLOAT64 is a valid SDK format, but Android has no 64-bit-float PCM
+        // encoding, so it cannot be captured live (file input only).
+        // This tutorial prefers FLOAT (best quality), falling back to 16-bit.
         AudioRecord rec = tryCreateRecorder(MediaRecorder.AudioSource.UNPROCESSED, AudioFormat.ENCODING_PCM_FLOAT);
         if (rec == null)
             rec = tryCreateRecorder(MediaRecorder.AudioSource.DEFAULT, AudioFormat.ENCODING_PCM_16BIT);
@@ -194,8 +230,8 @@ public class MainActivity extends AppCompatActivity {
         }
         recorder = rec;
 
-        // buffer size based on hop size
-        int bufferSize = SAMPLE_RATE * recorder.getChannelCount() * (int) sense.getHopSize();
+        // Buffer one hop of audio per read (hopSize seconds, from config.json).
+        int bufferSize = Math.max(1, (int) Math.round(SAMPLE_RATE * recorder.getChannelCount() * hopSize));
         final boolean isFloat = recorder.getAudioFormat() == AudioFormat.ENCODING_PCM_FLOAT;
 
         try {
@@ -234,13 +270,31 @@ public class MainActivity extends AppCompatActivity {
         // no auto-exit here; lifecycle manages shutdown
     }
 
+    // Reads "default_hopsize" (seconds) from config.json; returns the fallback
+    // when the key is absent, non-positive, or the file/JSON cannot be parsed.
+    private static double parseHopSize(File configFile, double fallback) {
+        try {
+            StringBuilder sb = new StringBuilder();
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(configFile))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    sb.append(line);
+                }
+            }
+            double value = new JSONObject(sb.toString()).optDouble("default_hopsize", fallback);
+            return value > 0.0 ? value : fallback;
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
 
     // Try to build a recorder; return null if unsupported.
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     private AudioRecord tryCreateRecorder(int audioSource, int encoding) {
         int channelConfig = AudioFormat.CHANNEL_IN_MONO;
         int min = AudioRecord.getMinBufferSize(SAMPLE_RATE, channelConfig, encoding);
-        if (min <= 0) return null;
+        if (min <= 0)
+            return null;
         try {
             AudioRecord r = new AudioRecord(audioSource, SAMPLE_RATE, channelConfig, encoding, min);
             if (r.getState() != AudioRecord.STATE_INITIALIZED) {
@@ -268,66 +322,84 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void performSensePredict(Object buf) {
-        // First frame: allocate sliding window of 2x frame
-        if (audioSampleFloat == null && audioSampleShort == null) {
-            if (buf instanceof float[]) {
-                float[] b = (float[]) buf;
-                isFloatSample = true;
-                audioSampleFloat = new float[b.length * 2];
-                System.arraycopy(b, 0, audioSampleFloat, b.length, b.length);
-            } else {
-                short[] b = (short[]) buf;
-                isFloatSample = false;
-                audioSampleShort = new short[b.length * 2];
-                System.arraycopy(b, 0, audioSampleShort, b.length, b.length);
-            }
-            return;
-        }
-
+        // Push each captured hop (one hopSize of NEW audio) exactly once. The
+        // SDK's PushAudioChunk keeps its own internal FIFO and windowing and
+        // fires one result per hop.
         JSONObject frameResult;
-        if (isFloatSample) {
-            float[] b = (float[]) buf;
-            float[] win = audioSampleFloat;
-            System.arraycopy(win, b.length, win, 0, b.length);
-            System.arraycopy(b, 0, win, b.length, b.length);
-            frameResult = sense.predict(win, SAMPLE_RATE);
+        if (buf instanceof float[]) {
+            frameResult = sense.predict((float[]) buf, SAMPLE_RATE);
         } else {
-            short[] b = (short[]) buf;
-            short[] win = audioSampleShort;
-            System.arraycopy(win, b.length, win, 0, b.length);
-            System.arraycopy(b, 0, win, b.length, b.length);
-            frameResult = sense.predict(win, SAMPLE_RATE);
+            frameResult = sense.predict((short[]) buf, SAMPLE_RATE);
         }
 
         try {
-            if (resultSummary) {
-                JSONArray summaries = frameResult.getJSONArray(keyResultSummary);
-                for (int i = 0; i < summaries.length(); ++i) {
-                    Append(summaries.getString(i));
+            // predict() returns every inference window as {"frames":[ ... ]},
+            // so unwrap the array and render each frame. When result summary is
+            // enabled, print its lines ("At X.X-Y.Ys, [tag] was detected", or
+            // "Listening..."); a window with no summary line prints nothing.
+            // Otherwise print the per-window pretty JSON.
+            JSONArray frames = frameResult.optJSONArray("frames");
+            if (frames == null) {
+                return;
+            }
+            final boolean summaryOn = sense.isResultSummaryEnabled();
+            for (int i = 0; i < frames.length(); ++i) {
+                JSONObject frame = frames.getJSONObject(i);
+                if (summaryOn) {
+                    JSONArray summaries = frame.optJSONArray(keyResultSummary);
+                    if (summaries != null) {
+                        for (int j = 0; j < summaries.length(); ++j) {
+                            Append(summaries.getString(j));
+                        }
+                    }
+                } else {
+                    Append(formatFrame(frame));
                 }
-                // Even if you use the result abbreviation, you can still get precise
-                // results like below if necessary:
-                // Append(printResult(frameResult));
-            } else {
-                Append("---------NEW FRAME---------");
-                Append(printResult(frameResult));
             }
         } catch (JSONException e) {
             sendExitMessage(e.toString());
         }
     }
 
-    private String printResult(JSONObject frameResult) throws JSONException {
-        frameResult.remove(keyResultSummary);
-        return frameResult.toString(2);
+    // Formats one frame result as the pretty-printed JSON.
+    private static String formatFrame(JSONObject frame) throws JSONException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\n");
+        sb.append("  \"start_time\": ").append(num(frame.getDouble("start_time"))).append(",\n");
+        sb.append("  \"end_time\": ").append(num(frame.getDouble("end_time"))).append(",\n");
+        sb.append("  \"prediction_time_ms\": ").append(num(frame.getDouble("prediction_time_ms"))).append(",\n");
+        JSONArray tags = frame.optJSONArray("tags");
+        if (tags == null || tags.length() == 0) {
+            sb.append("  \"tags\": []");
+        } else {
+            sb.append("  \"tags\": [\n");
+            for (int i = 0; i < tags.length(); ++i) {
+                JSONObject tag = tags.getJSONObject(i);
+                sb.append("    {\n");
+                sb.append("      \"name\": \"").append(tag.getString("name")).append("\",\n");
+                sb.append("      \"probability\": ").append(num(tag.getDouble("probability"))).append("\n");
+                sb.append(i == tags.length() - 1 ? "    }\n" : "    },\n");
+            }
+            sb.append("  ]");
+        }
+        sb.append("\n}");
+        return sb.toString();
     }
 
-    @SuppressWarnings("unused")
-    private String printResult(JSONObject frameResult, int indent) throws JSONException {
-        frameResult.remove(keyResultSummary);
-        return frameResult.toString(indent);
+    // 6 significant digits with trailing zeros dropped
+    // (2.0 -> "2", 0.75 -> "0.75", 3.26014 -> "3.26014").
+    private static String num(double v) {
+        String s = String.format(java.util.Locale.US, "%.6g", v);
+        if (s.indexOf('e') < 0 && s.indexOf('E') < 0 && s.indexOf('.') >= 0) {
+            int end = s.length();
+            while (end > 0 && s.charAt(end - 1) == '0')
+                end--;
+            if (end > 0 && s.charAt(end - 1) == '.')
+                end--;
+            s = s.substring(0, end);
+        }
+        return s;
     }
-
 
     // Graceful app exit without System.exit(0).
     private void exitApp(String reason) {
@@ -365,7 +437,7 @@ public class MainActivity extends AppCompatActivity {
         if (senseHandler != null && senseThread != null) {
             if (senseReady && !fromInitFail) {
                 final Object latch = new Object();
-                final boolean[] done = {false};
+                final boolean[] done = { false };
                 senseHandler.post(() -> {
                     try {
                         sense.terminate();
@@ -378,10 +450,11 @@ public class MainActivity extends AppCompatActivity {
                 });
 
                 synchronized (latch) {
-                    if (!done[0]) try {
-                        latch.wait(1500);
-                    } catch (InterruptedException ignored) {
-                    }
+                    if (!done[0])
+                        try {
+                            latch.wait(1500);
+                        } catch (InterruptedException ignored) {
+                        }
                 }
             }
 
@@ -454,7 +527,8 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void handleMessage(@NonNull Message msg) {
             MainActivity a = ref.get();
-            if (a == null) return;
+            if (a == null)
+                return;
 
             if (msg.what == AUDIO_READY) {
                 a.sensePredict(msg.obj);
@@ -467,16 +541,17 @@ public class MainActivity extends AppCompatActivity {
 
     // UI helpers
     private void Append(String msg) {
-        if (pause || event == null) return;
+        if (pause || event == null)
+            return;
 
         // Prefer working with Editable to avoid extra String allocations
         android.text.Editable e = event.getEditableText();
         if (e != null) {
             e.append(msg);
-            e.append('\n');           // Editable supports append(char)
+            e.append('\n');
         } else {
-            event.append(msg);        // TextView.append returns void (no chaining)
-            event.append("\n");       // Use String, not char
+            event.append(msg);
+            event.append("\n");
         }
 
         // Truncate to ~8KB from the head to avoid growing forever
@@ -485,7 +560,6 @@ public class MainActivity extends AppCompatActivity {
         int len = text.length();
         if (len > maxLen) {
             int cutFrom = Math.max(0, len - maxLen);
-            // Find a newline at/after the cutoff so we drop whole lines
             int firstNewline = -1;
             for (int i = cutFrom; i < len; i++) {
                 if (text.charAt(i) == '\n') {
@@ -495,7 +569,6 @@ public class MainActivity extends AppCompatActivity {
             }
             int deleteUntil = (firstNewline >= 0 ? firstNewline + 1 : cutFrom);
 
-            // Delete efficiently if we have an Editable
             if (e != null) {
                 e.delete(0, deleteUntil);
             } else {
@@ -512,22 +585,21 @@ public class MainActivity extends AppCompatActivity {
     private final Runnable scrollToBottomOnce = new Runnable() {
         @Override
         public void run() {
-            if (event == null) return;
+            if (event == null)
+                return;
 
             android.text.Layout layout = event.getLayout();
             if (layout == null) {
-                // Layout not ready yet → defer exactly once to after layout pass.
                 event.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
                     @Override
                     public boolean onPreDraw() {
-                        // Remove this listener and try again now that we're about to draw
                         event.getViewTreeObserver().removeOnPreDrawListener(this);
                         android.text.Layout l = event.getLayout();
                         if (l != null) {
                             int scrollAmount = l.getLineTop(event.getLineCount()) - event.getHeight();
                             event.scrollTo(0, Math.max(scrollAmount, 0));
                         }
-                        return true; // keep drawing
+                        return true;
                     }
                 });
                 return;
@@ -564,13 +636,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void requestPermissions() {
-        // one shot is enough
         requestPermissions(permissionList, SENSE_SDK_REQUEST_CODE);
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
+            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         if (requestCode == SENSE_SDK_REQUEST_CODE) {

@@ -1,4 +1,4 @@
-package ai.cochl.examples;
+package ai.cochl.tutorials;
 
 import android.graphics.Color;
 import android.view.LayoutInflater;
@@ -12,6 +12,10 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
 
 public class Adapter extends RecyclerView.Adapter<Adapter.ViewHolder> implements OnItemClickListener {
+    // Parse once, not on every bind.
+    private static final int COLOR_SELECTED = Color.parseColor("#40000000");
+    private static final int COLOR_UNSELECTED = Color.TRANSPARENT;
+
     private final ArrayList<Item> items = new ArrayList<>();
     private OnItemClickListener listener;
     private int selectedPosition = -1;
@@ -32,11 +36,7 @@ public class Adapter extends RecyclerView.Adapter<Adapter.ViewHolder> implements
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        if (selectedPosition == position) {
-            holder.tv.setBackgroundColor(Color.parseColor("#40000000"));
-        } else {
-            holder.tv.setBackgroundColor(Color.parseColor("#00000000"));
-        }
+        holder.tv.setBackgroundColor(selectedPosition == position ? COLOR_SELECTED : COLOR_UNSELECTED);
         holder.SetItem(items.get(position));
     }
 

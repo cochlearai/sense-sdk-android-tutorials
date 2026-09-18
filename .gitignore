@@ -1,13 +1,43 @@
-# macOS
-.DS_Store
+# ===========================================================================
+# Android tutorials -- build output, caches, IDE files, and secrets.
+# (Applies repo-wide across the sense-file/ and sense-stream/ Gradle projects.)
+# ===========================================================================
 
-# Windows
+# --- Gradle / build output ---
+**/build/
+**/.gradle/
+.gradle/
+local.properties
+
+# --- Vendored Sense SDK AAR (release artifact; add locally per README) ---
+**/libs/*.aar
+sense-sdk-*.aar
+
+# --- NDK / native build ---
+**/.cxx/
+**/.externalNativeBuild/
+
+# --- Android Studio / IntelliJ ---
+.idea/
+*.iml
+captures/
+.navigation/
+out/
+output.json
+
+# --- Signing / secrets ---
+*.jks
+*.keystore
+signing.properties
+**/google-services.json
+
+# --- Logs / profiling ---
+*.log
+*.hprof
+
+# --- OS junk ---
+.DS_Store
 Thumbs.db
 ehthumbs.db
 Desktop.ini
-
-# Linux
 *~
-
-# Etc.
-sense-sdk-*.aar

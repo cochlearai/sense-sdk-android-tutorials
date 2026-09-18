@@ -1,4 +1,4 @@
-package ai.cochl.examples;
+package ai.cochl.tutorials;
 
 import android.view.View;
 

@@ -355,19 +355,28 @@ public class MainActivity extends AppCompatActivity {
         }
 
         try {
-            // When result summary is enabled, print its lines
-            // ("At X.X-Y.Ys, [tag] was detected", or "Listening...");
-            // a window with no summary line prints nothing.
+            // predict() returns every inference window as {"frames":[ ... ]},
+            // so unwrap the array and render each frame. When result summary is
+            // enabled, print its lines ("At X.X-Y.Ys, [tag] was detected", or
+            // "Listening..."); a window with no summary line prints nothing.
             // Otherwise print the per-window pretty JSON.
-            if (sense.isResultSummaryEnabled()) {
-                JSONArray summaries = frameResult.optJSONArray(keyResultSummary);
-                if (summaries != null) {
-                    for (int i = 0; i < summaries.length(); ++i) {
-                        Append(summaries.getString(i));
+            JSONArray frames = frameResult.optJSONArray("frames");
+            if (frames == null) {
+                return;
+            }
+            final boolean summaryOn = sense.isResultSummaryEnabled();
+            for (int i = 0; i < frames.length(); ++i) {
+                JSONObject frame = frames.getJSONObject(i);
+                if (summaryOn) {
+                    JSONArray summaries = frame.optJSONArray(keyResultSummary);
+                    if (summaries != null) {
+                        for (int j = 0; j < summaries.length(); ++j) {
+                            Append(summaries.getString(j));
+                        }
                     }
+                } else {
+                    Append(formatFrame(frame));
                 }
-            } else {
-                Append(formatFrame(frameResult));
             }
         } catch (JSONException e) {
             sendExitMessage(e.toString());
@@ -405,8 +414,10 @@ public class MainActivity extends AppCompatActivity {
         String s = String.format(java.util.Locale.US, "%.6g", v);
         if (s.indexOf('e') < 0 && s.indexOf('E') < 0 && s.indexOf('.') >= 0) {
             int end = s.length();
-            while (end > 0 && s.charAt(end - 1) == '0') end--;
-            if (end > 0 && s.charAt(end - 1) == '.') end--;
+            while (end > 0 && s.charAt(end - 1) == '0')
+                end--;
+            if (end > 0 && s.charAt(end - 1) == '.')
+                end--;
             s = s.substring(0, end);
         }
         return s;

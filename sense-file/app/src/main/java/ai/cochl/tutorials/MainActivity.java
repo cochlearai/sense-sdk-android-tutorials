@@ -191,7 +191,8 @@ public class MainActivity extends AppCompatActivity {
         try {
             // predict() returns every inference window as {"frames":[ ... ]}.
             // When result summary is enabled, print its lines
-            // ("At X.X-Y.Ys, [tag] was detected"); a window with no summary line prints nothing.
+            // ("At X.X-Y.Ys, [tag] was detected"); a window with no summary line prints
+            // nothing.
             // Otherwise print the per-window pretty JSON.
             JSONArray frames = result.optJSONArray("frames");
             final boolean summaryOn = sense.isResultSummaryEnabled();
@@ -314,8 +315,10 @@ public class MainActivity extends AppCompatActivity {
         String s = String.format(java.util.Locale.US, "%.6g", v);
         if (s.indexOf('e') < 0 && s.indexOf('E') < 0 && s.indexOf('.') >= 0) {
             int end = s.length();
-            while (end > 0 && s.charAt(end - 1) == '0') end--;
-            if (end > 0 && s.charAt(end - 1) == '.') end--;
+            while (end > 0 && s.charAt(end - 1) == '0')
+                end--;
+            if (end > 0 && s.charAt(end - 1) == '.')
+                end--;
             s = s.substring(0, end);
         }
         return s;
@@ -412,6 +415,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         return true;
+
     }
 
     private void requestPermissions() {

@@ -1,4 +1,4 @@
-package ai.cochl.examples;
+package ai.cochl.tutorials;
 
 import android.content.Context;
 
@@ -16,11 +16,11 @@ import static org.junit.Assert.*;
  * @see <a href="http://d.android.com/tools/testing">Testing documentation</a>
  */
 @RunWith(AndroidJUnit4.class)
-public class ExampleInstrumentedTest {
+public class TutorialInstrumentedTest {
     @Test
     public void useAppContext() {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
-        assertEquals("ai.cochl.examples", appContext.getPackageName());
+        assertEquals("ai.cochl.tutorials", appContext.getPackageName());
     }
 }

@@ -1,7 +1,8 @@
-package ai.cochl.examples;
+package ai.cochl.tutorials;
 
 import android.content.Context;
 import android.content.res.AssetManager;
+import android.util.Log;
 
 import java.io.File;
 import java.io.IOException;
@@ -10,6 +11,8 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 
 public class CopyAssets {
+
+    private static final String TAG = "CopyAssets";
 
     private final Context context;
 
@@ -21,7 +24,7 @@ public class CopyAssets {
         try {
             return copyAssetDirRecursive("", context.getExternalFilesDir(null));
         } catch (IOException e) {
-            e.getStackTrace();
+            Log.e(TAG, "Failed to copy assets", e);
             return false;
         }
     }
@@ -54,7 +57,7 @@ public class CopyAssets {
     }
 
     private void copyFile(InputStream in, OutputStream out) throws IOException {
-        byte[] buffer = new byte[1024];
+        byte[] buffer = new byte[8192];
         int read;
         while ((read = in.read(buffer)) != -1) {
             out.write(buffer, 0, read);

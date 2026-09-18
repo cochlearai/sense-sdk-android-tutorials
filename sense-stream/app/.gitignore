@@ -1,1 +1,4 @@
 /build
+
+# Vendored SDK AAR (release artifact; add locally per README)
+/libs/

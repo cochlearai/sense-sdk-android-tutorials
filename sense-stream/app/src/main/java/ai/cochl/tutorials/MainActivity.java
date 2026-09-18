@@ -53,11 +53,13 @@ public class MainActivity extends AppCompatActivity {
     private final String configPath = "config/config.json";
     private final int SENSE_SDK_REQUEST_CODE = 0;
     private final String[] permissionList = { Manifest.permission.INTERNET, Manifest.permission.RECORD_AUDIO };
+
     // Microphone capture rate in Hz, fixed to the model's rate. Capture rates
     // BELOW the model rate are not supported (upsampling cannot recover the
     // missing high frequencies the model needs); a higher device rate would be
     // downsampled by the SDK.
     private final int SAMPLE_RATE = 22050;
+
     // Inference hop in seconds, read from config.json's "default_hopsize" at
     // init (see parseHopSize). Falls back to DEFAULT_HOP_SIZE when the key is
     // absent/invalid; mirrors the cpp/python tutorials so the mic buffer stays
@@ -76,9 +78,6 @@ public class MainActivity extends AppCompatActivity {
     private Thread audioThread = null;
     private volatile boolean running = false;
 
-    private float[] audioSampleFloat = null;
-    private short[] audioSampleShort = null;
-    private boolean isFloatSample = false;
     private static final String keyResultSummary = "summaries";
 
     private boolean settingsButtonClicked = false;
@@ -323,35 +322,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void performSensePredict(Object buf) {
-        // First frame: allocate sliding window of 2x frame
-        if (audioSampleFloat == null && audioSampleShort == null) {
-            if (buf instanceof float[]) {
-                float[] b = (float[]) buf;
-                isFloatSample = true;
-                audioSampleFloat = new float[b.length * 2];
-                System.arraycopy(b, 0, audioSampleFloat, b.length, b.length);
-            } else {
-                short[] b = (short[]) buf;
-                isFloatSample = false;
-                audioSampleShort = new short[b.length * 2];
-                System.arraycopy(b, 0, audioSampleShort, b.length, b.length);
-            }
-            return;
-        }
-
+        // Push each captured hop (one hopSize of NEW audio) exactly once. The
+        // SDK's PushAudioChunk keeps its own internal FIFO and windowing and
+        // fires one result per hop.
         JSONObject frameResult;
-        if (isFloatSample) {
-            float[] b = (float[]) buf;
-            float[] win = audioSampleFloat;
-            System.arraycopy(win, b.length, win, 0, b.length);
-            System.arraycopy(b, 0, win, b.length, b.length);
-            frameResult = sense.predict(win, SAMPLE_RATE);
+        if (buf instanceof float[]) {
+            frameResult = sense.predict((float[]) buf, SAMPLE_RATE);
         } else {
-            short[] b = (short[]) buf;
-            short[] win = audioSampleShort;
-            System.arraycopy(win, b.length, win, 0, b.length);
-            System.arraycopy(b, 0, win, b.length, b.length);
-            frameResult = sense.predict(win, SAMPLE_RATE);
+            frameResult = sense.predict((short[]) buf, SAMPLE_RATE);
         }
 
         try {
